@@ -326,23 +326,81 @@
   const providerObj = () => state.providers.find(p => p.name === state.provider) || null;
   const modelStoreKey = () => 'hz.model.' + (state.provider || 'any');
 
+  // ---------- API plumbing ----------
+  // Same-shape calls whether served by the local Node server or Netlify
+  // Functions. Handles the optional password gate: on 401, ask once and retry.
+  async function apiFetch(route, body, _retried){
+    const pw = localStorage.getItem('hz.pw');
+    const opts = body === undefined
+      ? { headers: pw ? { 'x-app-password': pw } : {} }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json', ...(pw ? { 'x-app-password': pw } : {}) }, body: JSON.stringify(body) };
+    const res = await fetch('/api/'+route, opts);
+    if (res.status === 401 && !_retried){
+      const entered = window.prompt('This humanizer is password-protected. Enter the password:');
+      if (entered){ localStorage.setItem('hz.pw', entered); return apiFetch(route, body, true); }
+    }
+    const j = await res.json().catch(()=>({ error: 'Bad response from server' }));
+    if (!res.ok) throw new Error(j.error || ('HTTP '+res.status));
+    return j;
+  }
+
+  async function pool(items, n, fn){
+    let next = 0;
+    const workers = Array.from({length: Math.min(n, items.length || 1)}, async ()=>{
+      while (next < items.length){ const i = next++; await fn(items[i], i); }
+    });
+    await Promise.all(workers);
+  }
+
+  function fileToB64(file){
+    return new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = ()=>resolve(String(fr.result).split(',')[1]);
+      fr.onerror = ()=>reject(new Error('Could not read the file'));
+      fr.readAsDataURL(file);
+    });
+  }
+
+  // ---------- run history (browser localStorage) ----------
+  const HISTORY_KEY = 'hz.history';
+  function historyList(){
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+  }
+  function saveRun(run){
+    try{
+      const list = historyList();
+      const entry = { id: Date.now().toString(36)+Math.random().toString(36).slice(2,6), ts: new Date().toISOString(), ...run };
+      if ((entry.input||'').length + (entry.output||'').length > 400000){
+        entry.input = (entry.input||'').slice(0, 2000);
+        entry.output = (entry.output||'').slice(0, 2000);
+        entry.truncated = true;
+      }
+      list.unshift(entry);
+      while (list.length > 20) list.pop();
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+    }catch(_){ /* storage quota - skip saving */ }
+  }
+
   // ---------- init ----------
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{
-    state.config = cfg;
-    state.providers = cfg.providers;
-    const pill = $('modePill');
-    const ready = cfg.providers.filter(p=>p.ready);
-    if (cfg.mock) { pill.textContent='MOCK MODE'; pill.className='pill mock'; pill.title='No API key in .env — rewrites are simulated. See .env.example for free keys (Groq/Gemini/Cerebras, no card).'; }
-    else { pill.textContent='LIVE'; pill.className='pill live'; pill.title='Engines ready: '+ready.map(p=>p.label).join(', '); }
-    buildEngineSeg();
-    // Initial engine: last used if still ready -> recommended ready -> first ready -> recommended (mock display)
-    const saved = localStorage.getItem('hz.provider');
-    const pick = ready.find(p=>p.name===saved) || ready.find(p=>p.recommended) || ready[0]
-      || cfg.providers.find(p=>p.recommended) || cfg.providers[0];
-    selectEngine(pick.name);
-    buildSeg('toneSeg', cfg.tones, state.tone, v=>{state.tone=v;localStorage.setItem('hz.tone',v);});
-    buildSeg('strengthSeg', cfg.strengths, state.strength, v=>{state.strength=v;localStorage.setItem('hz.strength',v);});
-  }).catch(()=>toast('Could not reach the local server', true));
+  (async ()=>{
+    try{
+      const cfg = await apiFetch('config');
+      state.config = cfg;
+      state.providers = cfg.providers;
+      const pill = $('modePill');
+      const ready = cfg.providers.filter(p=>p.ready);
+      if (cfg.mock) { pill.textContent='MOCK MODE'; pill.className='pill mock'; pill.title='No API key configured — rewrites are simulated. See .env.example for free keys (Groq/Gemini/Cerebras, no card).'; }
+      else { pill.textContent='LIVE'; pill.className='pill live'; pill.title='Engines ready: '+ready.map(p=>p.label).join(', '); }
+      buildEngineSeg();
+      // Initial engine: last used if still ready -> recommended ready -> first ready -> recommended (mock display)
+      const saved = localStorage.getItem('hz.provider');
+      const pick = ready.find(p=>p.name===saved) || ready.find(p=>p.recommended) || ready[0]
+        || cfg.providers.find(p=>p.recommended) || cfg.providers[0];
+      selectEngine(pick.name);
+      buildSeg('toneSeg', cfg.tones, state.tone, v=>{state.tone=v;localStorage.setItem('hz.tone',v);});
+      buildSeg('strengthSeg', cfg.strengths, state.strength, v=>{state.strength=v;localStorage.setItem('hz.strength',v);});
+    }catch(err){ toast('Could not reach the server: '+err.message, true); }
+  })();
 
   function buildEngineSeg(){
     const seg = $('engineSeg'); seg.innerHTML='';
@@ -453,53 +511,48 @@
     $('docxHumanizeBtn').textContent = 'Working…';
     $('progress').classList.add('show'); setProgress(3, 'reading '+file.name+'…');
     try{
-      const b64 = await new Promise((resolve, reject)=>{
-        const fr = new FileReader();
-        fr.onload = ()=>resolve(String(fr.result).split(',')[1]);
-        fr.onerror = ()=>reject(new Error('Could not read the file'));
-        fr.readAsDataURL(file);
-      });
-      const res = await fetch('/api/humanize-docx', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          filename: file.name, fileB64: b64,
-          tone: state.tone, strength: state.strength,
-          provider: state.provider, model: currentModel(),
-          voiceSample: $('voiceSample').value,
-        }),
-      });
-      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true){
-        const {done, value} = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, {stream:true});
-        let nl;
-        while ((nl = buf.indexOf('\n')) >= 0){
-          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
-          if (!line) continue;
-          const ev = JSON.parse(line);
-          if (ev.type==='meta') setProgress(6, ev.paragraphs+' paragraphs to rewrite · '+ev.provider+(ev.mock?' · MOCK':''));
-          else if (ev.type==='progress') setProgress(6 + 88*(ev.done/Math.max(1,ev.total)), 'rewriting '+ev.done+'/'+ev.total);
-          else if (ev.type==='error') throw new Error(ev.error);
-          else if (ev.type==='file'){
-            setProgress(100,'done');
-            const bytes = Uint8Array.from(atob(ev.b64), c=>c.charCodeAt(0));
-            const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = ev.filename;
-            a.click();
-            URL.revokeObjectURL(a.href);
-            const s = ev.stats;
-            if (ev.fatal) toast('Stopped early: '+ev.fatal, true);
-            else if (ev.mock) toast('MOCK document run — no API key, text mostly unchanged. Downloaded '+ev.filename+'.', true);
-            else toast('Done — '+s.rewritten+' of '+s.candidates+' prose paragraphs humanized'+(s.failed?(', '+s.failed+' kept original after errors'):'')+'. Downloaded '+ev.filename);
-          }
-        }
+      if (file.size > 4*1024*1024) throw new Error('File is over 4MB — too large for hosted mode');
+      const b64 = await fileToB64(file);
+
+      // 1. split the docx into rewritable prose paragraphs
+      setProgress(5, 'splitting document…');
+      const split = await apiFetch('docx-split', { fileB64: b64 });
+      const isMockRun = state.config && state.config.mock;
+      if (!split.total){
+        toast('Nothing to rewrite — no prose paragraphs found (headings/tables are preserved by design)', true);
+        return;
       }
+      setProgress(8, split.total+' paragraphs to rewrite'+(isMockRun?' · MOCK':''));
+
+      // 2. rewrite each paragraph (browser-side pool, one short call each)
+      const replacements = {};
+      let done = 0, failed = 0;
+      await pool(split.paragraphs, 3, async p=>{
+        try{
+          const r = await apiFetch('rewrite-chunk', {
+            text: p.text, tone: state.tone, strength: state.strength,
+            provider: state.provider, model: currentModel(),
+            voiceSample: $('voiceSample').value,
+          });
+          if (r.rewritten && r.rewritten.trim() && r.rewritten.trim() !== p.text) replacements[p.index] = r.rewritten;
+        }catch(_){ failed++; }
+        done++;
+        setProgress(8 + 82*(done/split.total), 'rewriting '+done+'/'+split.total);
+      });
+
+      // 3. rebuild the document with the replacements
+      setProgress(92, 'rebuilding document…');
+      const rebuilt = await apiFetch('docx-rebuild', { fileB64: b64, replacements });
+      setProgress(100, 'done');
+      const bytes = Uint8Array.from(atob(rebuilt.fileB64), c=>c.charCodeAt(0));
+      const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'humanized-'+file.name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      if (isMockRun) toast('MOCK document run — no API key, text mostly unchanged. Downloaded humanized-'+file.name+'.', true);
+      else toast('Done — '+rebuilt.stats.rewritten+' of '+split.total+' prose paragraphs humanized'+(failed?(', '+failed+' kept original after errors'):'')+'. Downloaded humanized-'+file.name);
     }catch(err){
       toast('Document humanize failed: '+err.message, true);
     }finally{
@@ -510,15 +563,11 @@
   }
 
   async function uploadFile(file){
+    if (file.size > 4*1024*1024){ toast('File is over 4MB — too large to process here', true); return; }
     toast('Extracting text from '+file.name+'…');
     try{
-      const res = await fetch('/api/extract', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
-        body: file,
-      });
-      const j = await res.json();
-      if(!res.ok) throw new Error(j.error||('HTTP '+res.status));
+      const b64 = await fileToB64(file);
+      const j = await apiFetch('extract', { filename: file.name, fileB64: b64 });
       $('inputText').value = j.text;
       updateCounts();
       // jump to paste tab so the extracted text is visible/editable
@@ -558,66 +607,65 @@
     $('result').innerHTML='<span class="pending">rewriting…</span>'; $('compare').innerHTML='';
     $('progress').classList.add('show'); setProgress(0, selective ? 'rewriting flagged parts only…' : 'starting…');
 
+    const started = Date.now();
     try{
-      const res = await fetch('/api/humanize', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          text, tone: state.tone, strength: state.strength,
-          provider: state.provider, model: currentModel(),
-          voiceSample: $('voiceSample').value,
-          ...(selective ? { keep } : {}),
-        }),
-      });
-      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
+      // 1. chunk server-side (same logic locally and deployed)
+      const { chunks } = await apiFetch('chunk', { text, ...(selective ? { keep } : {}) });
+      state.total = chunks.length;
+      renderAll();
+      const isMockRun = state.config && state.config.mock;
+      const engineLabel = providerObj() ? providerObj().label : 'mock';
+      setProgress(4, '0/'+chunks.length+' chunks · '+engineLabel+' · '+currentModel()+(isMockRun?' · MOCK':''));
 
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true){
-        const {done, value} = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, {stream:true});
-        let nl;
-        while ((nl = buf.indexOf('\n')) >= 0){
-          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
-          if (line) handleEvent(JSON.parse(line));
+      // 2. rewrite chunks with a browser-side pool - one short API call each
+      let done = 0, failed = 0, totalTokens = 0;
+      await pool(chunks, 3, async chunk=>{
+        if (!chunk.rewritable){
+          state.chunks[chunk.index] = { original: chunk.text, rewritten: chunk.text, rewritable: false, error: null };
+        } else {
+          try{
+            const r = await apiFetch('rewrite-chunk', {
+              text: chunk.text, tone: state.tone, strength: state.strength,
+              provider: state.provider, model: currentModel(),
+              voiceSample: $('voiceSample').value,
+            });
+            state.chunks[chunk.index] = { original: chunk.text, rewritten: r.rewritten, rewritable: true, error: null };
+            if (r.usage) totalTokens += (r.usage.prompt_tokens||0) + (r.usage.completion_tokens||0);
+          }catch(err){
+            failed++;
+            state.chunks[chunk.index] = { original: chunk.text, rewritten: chunk.text, rewritable: true, error: err.message };
+          }
         }
-      }
+        done++;
+        setProgress(4 + 88*(done/chunks.length), done+'/'+chunks.length+' chunks');
+        renderAll();
+      });
+
+      // 3. before/after naturalness metrics
+      setProgress(95, 'scoring…');
+      const output = state.chunks.map(c=>c?c.rewritten:'').join('\n\n');
+      let metrics = null;
+      try{
+        const [before, after] = await Promise.all([apiFetch('analyze', { text }), apiFetch('analyze', { text: output })]);
+        metrics = { before: before.overall, after: after.overall };
+        renderMetrics(metrics);
+      }catch(_){ /* metrics are best-effort */ }
+
+      setProgress(100, 'done');
+      $('copyBtn').style.display=''; $('dlBtn').style.display='';
+      saveRun({
+        input: text, output, metrics,
+        settings: { tone: state.tone, strength: state.strength, model: currentModel(), provider: state.provider, mock: !!isMockRun },
+        elapsedMs: Date.now() - started,
+      });
+      if (failed) toast(failed+' chunk(s) failed and passed through unrewritten', true);
+      else if (isMockRun) toast('MOCK run — no API key configured, so the text may be unchanged. Add a free key (.env.example has 3 no-card options) to go live.', true);
+      else toast('Done in '+((Date.now()-started)/1000).toFixed(1)+'s'+(totalTokens?(' · '+totalTokens.toLocaleString()+' tokens'):''));
     }catch(err){
       toast('Humanize failed: '+err.message, true);
     }finally{
       state.running=false; $('goBtn').disabled=false; $('checkBtn').disabled=false; $('goBtn').textContent='Humanize';
       $('progress').classList.remove('show');
-    }
-  }
-
-  function handleEvent(ev){
-    if (ev.type==='meta'){
-      state.total = ev.chunks;
-      state.lastMock = ev.mock;
-      setProgress(0, '0/'+ev.chunks+' chunks · '+ev.provider+' · '+ev.model+(ev.mock?' · MOCK':''));
-      renderAll();
-    }
-    else if (ev.type==='chunk' || ev.type==='chunk_error'){
-      state.chunks[ev.index] = {
-        original: ev.original,
-        rewritten: ev.type==='chunk' ? ev.rewritten : ev.original,
-        rewritable: ev.rewritable !== false,
-        error: ev.type==='chunk_error' ? ev.error : null,
-      };
-      const doneCount = state.chunks.filter(Boolean).length;
-      setProgress(doneCount/state.total*100, doneCount+'/'+state.total+' chunks');
-      renderAll();
-    }
-    else if (ev.type==='done'){
-      setProgress(100,'done');
-      renderMetrics(ev.metrics);
-      $('copyBtn').style.display=''; $('dlBtn').style.display='';
-      if (ev.fatal) toast('Stopped early: '+ev.fatal, true);
-      else if (ev.failedChunks) toast(ev.failedChunks+' chunk(s) failed and passed through unrewritten', true);
-      else if (state.lastMock) toast('MOCK run — no API key configured, so the text may be unchanged. Add a free key (.env.example has 3 no-card options) to go live.', true);
-      else toast('Done in '+(ev.elapsedMs/1000).toFixed(1)+'s'+(ev.usage.completion_tokens?(' · '+(ev.usage.prompt_tokens+ev.usage.completion_tokens).toLocaleString()+' tokens'):''));
-      loadHistory();
     }
   }
 
@@ -647,24 +695,35 @@
     state.analysis = null;
 
     try{
-      const res = await fetch('/api/analyze', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ text, provider: state.provider, model: currentModel(), deep: true }),
-      });
-      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '';
-      while (true){
-        const {done, value} = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, {stream:true});
-        let nl;
-        while ((nl = buf.indexOf('\n')) >= 0){
-          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
-          if (line) handleAnalyzeEvent(JSON.parse(line));
-        }
+      // 1. instant local heuristics
+      const a = await apiFetch('analyze', { text });
+      const judging = !a.mock;
+      state.analysis = {
+        paragraphs: a.paragraphs.map(p=>({ ...p, judge: null, judgeReasons: [] })),
+        overall: { heuristic: a.overall.score, judge: null, blended: a.overall.score, verdict: a.overall.verdict, reasons: a.overall.reasons },
+        judging,
+        judgedCount: 0,
+      };
+      renderAnalysis();
+
+      // 2. AI judge per paragraph (browser-side pool), refining tiles as it goes
+      const targets = state.analysis.paragraphs.filter(p=>p.score!==null);
+      if (judging && targets.length){
+        setProgress(15, 'AI judge reading '+targets.length+' paragraph'+(targets.length===1?'':'s')+'…');
+        await pool(targets, 3, async p=>{
+          try{
+            const j = await apiFetch('judge', { text: p.text, provider: state.provider, model: currentModel() });
+            if (!j.skipped){ p.judge = j.score; p.judgeReasons = j.reasons || []; }
+          }catch(_){ /* tile keeps its heuristic score */ }
+          state.analysis.judgedCount++;
+          setProgress(15 + 85*(state.analysis.judgedCount/targets.length), 'judged '+state.analysis.judgedCount+'/'+targets.length);
+          renderAnalysis();
+        });
       }
+
+      finishAnalysisBlend();
+      setProgress(100, judging ? 'done' : 'heuristics only — no engine live');
+      renderAnalysis();
     }catch(err){
       toast('Check failed: '+err.message, true);
     }finally{
@@ -674,36 +733,18 @@
     }
   }
 
-  function handleAnalyzeEvent(ev){
-    if (ev.type==='heuristics'){
-      state.analysis = {
-        paragraphs: ev.paragraphs.map(p=>({ ...p, judge: null, judgeReasons: [] })),
-        overall: { heuristic: ev.overall.score, judge: null, blended: ev.overall.score, verdict: ev.overall.verdict, reasons: ev.overall.reasons },
-        judging: ev.judging,
-        judgedCount: 0,
-      };
-      renderAnalysis();
-      const n = state.analysis.paragraphs.filter(p=>p.score!==null).length;
-      if (ev.judging) setProgress(15, 'AI judge reading '+n+' paragraph'+(n===1?'':'s')+'…');
-      else setProgress(100, 'heuristics only — no engine live');
-    }
-    else if (ev.type==='judge' || ev.type==='judge_error'){
-      const a = state.analysis; if (!a) return;
-      if (ev.type==='judge'){
-        const p = a.paragraphs[ev.index];
-        if (p){ p.judge = ev.score; p.judgeReasons = ev.reasons || []; }
-      }
-      a.judgedCount++;
-      const total = a.paragraphs.filter(x=>x.score!==null).length || 1;
-      setProgress(15 + 85*(a.judgedCount/total), 'judged '+a.judgedCount+'/'+total);
-      renderAnalysis();
-    }
-    else if (ev.type==='done'){
-      if (state.analysis) state.analysis.overall = ev.overall;
-      setProgress(100,'done');
-      if (ev.fatal) toast('AI judge stopped early: '+ev.fatal, true);
-      renderAnalysis();
-    }
+  // Word-weighted doc blend: 35% heuristic + 65% judge where a judge score exists.
+  function finishAnalysisBlend(){
+    const a = state.analysis; if (!a) return;
+    const scored = a.paragraphs.filter(p=>p.score!==null);
+    if (!scored.length) return;
+    const totalWords = scored.reduce((x,p)=>x+p.words,0) || 1;
+    const blended = Math.round(scored.reduce((x,p)=>x+finalScore(p)*p.words,0) / totalWords);
+    const judged = scored.filter(p=>p.judge!=null);
+    const jw = judged.reduce((x,p)=>x+p.words,0) || 1;
+    a.overall.judge = judged.length ? Math.round(judged.reduce((x,p)=>x+p.judge*p.words,0)/jw) : null;
+    a.overall.blended = blended;
+    a.overall.verdict = blended>=65 ? 'human' : blended>=45 ? 'mixed' : 'ai-ish';
   }
 
   function finalScore(p){
@@ -839,41 +880,41 @@
     URL.revokeObjectURL(a.href);
   };
 
-  // ---------- history ----------
-  $('historyBtn').onclick = ()=>{ $('drawer').classList.add('open'); loadHistory(); };
+  // ---------- history (browser localStorage - works locally and deployed) ----------
+  $('historyBtn').onclick = ()=>{ $('drawer').classList.add('open'); renderHistory(); };
   $('drawerClose').onclick = ()=>$('drawer').classList.remove('open');
   document.addEventListener('keydown', e=>{ if(e.key==='Escape') $('drawer').classList.remove('open'); });
 
-  async function loadHistory(){
-    try{
-      const j = await (await fetch('/api/history')).json();
-      const list = $('drawerList');
-      if (!j.items.length){ list.innerHTML='<div class="h-empty">No runs yet.</div>'; return; }
-      list.innerHTML = j.items.map(it=>
-        '<div class="h-item" data-id="'+it.id+'">'+
-          '<div class="h-top"><span class="h-ts">'+new Date(it.ts).toLocaleString()+'</span>'+
-          '<span class="h-meta">'+it.words.toLocaleString()+'w · '+esc(it.settings.tone)+'/'+esc(it.settings.strength)+
-          (it.scoreBefore!==null?(' · '+it.scoreBefore+'→'+it.scoreAfter):'')+(it.settings.mock?' · mock':'')+'</span></div>'+
-          '<div class="h-prev">'+esc(it.preview)+'…</div>'+
-        '</div>'
-      ).join('');
-      list.querySelectorAll('.h-item').forEach(el=>el.onclick=()=>loadRun(el.dataset.id));
-    }catch(_){}
+  function renderHistory(){
+    const items = historyList();
+    const list = $('drawerList');
+    if (!items.length){ list.innerHTML='<div class="h-empty">No runs yet.</div>'; return; }
+    list.innerHTML = items.map(it=>{
+      const words = it.metrics && it.metrics.before ? it.metrics.before.wordCount : null;
+      const scores = it.metrics && it.metrics.before && it.metrics.before.score!==null
+        ? (' · '+it.metrics.before.score+'→'+it.metrics.after.score) : '';
+      return '<div class="h-item" data-id="'+it.id+'">'+
+        '<div class="h-top"><span class="h-ts">'+new Date(it.ts).toLocaleString()+'</span>'+
+        '<span class="h-meta">'+(words!==null?words.toLocaleString()+'w · ':'')+esc(it.settings.tone)+'/'+esc(it.settings.strength)+
+        scores+(it.settings.mock?' · mock':'')+'</span></div>'+
+        '<div class="h-prev">'+esc((it.input||'').slice(0,110))+'…</div>'+
+      '</div>';
+    }).join('');
+    list.querySelectorAll('.h-item').forEach(el=>el.onclick=()=>loadRun(el.dataset.id));
   }
 
-  async function loadRun(id){
-    try{
-      const j = await (await fetch('/api/history/'+id)).json();
-      $('inputText').value = j.input; updateCounts();
-      state.total = 1;
-      state.chunks = [{original:j.input, rewritten:j.output, rewritable:true, error:null}];
-      $('empty').style.display='none';
-      $('viewTabs').style.display=''; $('copyBtn').style.display=''; $('dlBtn').style.display='';
-      setView(state.view==='analysis' ? 'result' : state.view);
-      renderAll(); renderMetrics(j.metrics);
-      $('drawer').classList.remove('open');
-      toast('Loaded run from '+new Date(j.ts).toLocaleString());
-    }catch(err){ toast('Could not load run: '+err.message, true); }
+  function loadRun(id){
+    const it = historyList().find(x=>x.id===id);
+    if (!it){ toast('Run not found', true); return; }
+    $('inputText').value = it.input || ''; updateCounts();
+    state.total = 1;
+    state.chunks = [{original: it.input||'', rewritten: it.output||'', rewritable:true, error:null}];
+    $('empty').style.display='none';
+    $('viewTabs').style.display=''; $('copyBtn').style.display=''; $('dlBtn').style.display='';
+    setView(state.view==='analysis' ? 'result' : state.view);
+    renderAll(); if (it.metrics) renderMetrics(it.metrics);
+    $('drawer').classList.remove('open');
+    toast('Loaded run from '+new Date(it.ts).toLocaleString()+(it.truncated?' (content was truncated to fit storage)':''));
   }
 
   // ---------- toast ----------

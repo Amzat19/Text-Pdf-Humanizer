@@ -1,0 +1,10 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+  command = ""
+
+[functions]
+  node_bundler = "esbuild"
+  # These CJS libs use dynamic requires/assets that esbuild can't inline -
+  # ship them as-is inside the function bundle instead.
+  external_node_modules = ["pdf-parse", "mammoth", "jszip", "@xmldom/xmldom"]

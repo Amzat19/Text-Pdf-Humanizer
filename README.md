@@ -84,6 +84,19 @@ $0 on the free tiers above. A typical 1,000-word document ≈ 1,500–2,500 toke
 
 Every run is saved to `data/history/*.json` (local only). Open the History drawer to reload past runs. Delete files there to purge.
 
+## Deploying to Netlify
+
+The repo is deploy-ready: the same UI is served statically, and `netlify/functions/api.mjs` exposes the same `/api/*` routes the local server does. The browser orchestrates chunk-by-chunk, so every function call is short (serverless-friendly).
+
+1. Push this repo to GitHub (`.env` is gitignored — the key never leaves your machine).
+2. On netlify.com: **Add new site → Import an existing project → GitHub** → pick the repo. Build settings come from `netlify.toml` automatically.
+3. **Site configuration → Environment variables** — add:
+   - `GROQ_API_KEY` (or `GEMINI_API_KEY` / `CEREBRAS_API_KEY`) — your engine key
+   - `APP_PASSWORD` — required in practice: without it, anyone who finds the URL burns your free-tier quota. The UI asks for it once and remembers.
+4. Deploy. Run history is stored per-browser (localStorage), not on the server.
+
+Notes for hosted mode: uploaded files are capped at ~4MB (serverless payload limit), and each rewrite/judge call is a separate function invocation — a 30-paragraph doc ≈ 30 invocations (free tier: 125k/month, so effectively unlimited for personal use).
+
 ## Roadmap ideas
 
 - Voice sample library (save named voices)
