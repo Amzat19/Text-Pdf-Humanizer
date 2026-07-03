@@ -3,8 +3,12 @@
   functions = "netlify/functions"
   command = ""
 
+[build.environment]
+  NODE_VERSION = "20"
+
 [functions]
+  # Bundle dependencies INTO the function (esbuild) rather than relying on
+  # Netlify to trace + ship node_modules. This guarantees mammoth / pdf-parse /
+  # jszip / xmldom are present in the deployed artifact - externalizing them
+  # caused "Cannot find module" at cold start (502 on every endpoint).
   node_bundler = "esbuild"
-  # These CJS libs use dynamic requires/assets that esbuild can't inline -
-  # ship them as-is inside the function bundle instead.
-  external_node_modules = ["pdf-parse", "mammoth", "jszip", "@xmldom/xmldom"]
