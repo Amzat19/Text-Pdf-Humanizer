@@ -1,0 +1,16 @@
+{
+  "name": "ai-humanizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local AI text humanizer - paste or upload a document, get natural human-sounding text back",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.10",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "1.1.1"
+  }
+}

@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Humanizer</title>
+<style>
+  :root{
+    --bg:#16130f; --bg2:#1d1915; --bg3:#26211b; --line:#342d24; --line2:#453b2e;
+    --text:#ede4d3; --dim:#a2937c; --faint:#6f6453;
+    --amber:#f0a43c; --amber-hot:#ffbb55; --amber-dim:rgba(240,164,60,.14);
+    --green:#8fbf75; --red:#d9705f; --red-dim:rgba(217,112,95,.16);
+    --serif:Georgia,'Times New Roman',serif;
+    --sans:'Segoe UI',system-ui,sans-serif;
+    --mono:'Cascadia Code','Cascadia Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans); font-size:15px;
+    background-image:radial-gradient(ellipse 90% 60% at 50% -10%, rgba(240,164,60,.06), transparent 60%);
+  }
+  body::after{ /* grain */
+    content:""; position:fixed; inset:0; pointer-events:none; opacity:.05; z-index:9999;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  }
+  ::selection{background:var(--amber-dim);color:var(--amber-hot)}
+
+  .wrap{max-width:1460px;margin:0 auto;padding:22px 28px 60px}
+
+  /* header */
+  header{display:flex;align-items:baseline;gap:18px;padding:6px 2px 20px;animation:rise .5s ease both}
+  .brand{font-family:var(--serif);font-style:italic;font-size:30px;letter-spacing:.5px}
+  .brand b{font-weight:400}
+  .brand .dot{color:var(--amber);font-style:normal}
+  .tagline{color:var(--faint);font-size:13px;letter-spacing:.04em}
+  header .spacer{flex:1}
+  .pill{font-family:var(--mono);font-size:11px;letter-spacing:.14em;padding:5px 12px;border-radius:99px;border:1px solid var(--line2)}
+  .pill.mock{color:var(--amber);border-color:rgba(240,164,60,.45);background:var(--amber-dim)}
+  .pill.live{color:var(--green);border-color:rgba(143,191,117,.4);background:rgba(143,191,117,.1)}
+  .ghost-btn{background:none;border:1px solid var(--line2);color:var(--dim);padding:6px 14px;border-radius:8px;cursor:pointer;font-family:var(--sans);font-size:13px;transition:.15s}
+  .ghost-btn:hover{color:var(--text);border-color:var(--amber);background:var(--amber-dim)}
+
+  /* layout */
+  .cols{display:grid;grid-template-columns:minmax(380px,46fr) minmax(420px,54fr);gap:20px;align-items:start}
+  @media (max-width:1020px){.cols{grid-template-columns:1fr}}
+  .card{background:var(--bg2);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .card.in{animation:rise .55s .08s ease both}
+  .card.out{animation:rise .55s .16s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+  .card-head{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line)}
+  .card-head .label{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--faint)}
+  .card-head .spacer{flex:1}
+
+  /* tabs & segmented controls */
+  .seg{display:inline-flex;background:var(--bg3);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+  .seg button{background:none;border:0;color:var(--dim);font-family:var(--sans);font-size:12.5px;padding:5px 13px;border-radius:7px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .seg button:hover{color:var(--text)}
+  .seg button.on{background:var(--amber);color:#241a0c;font-weight:600}
+  .seg button.off{opacity:.35;cursor:not-allowed}
+  .seg button.off:hover{color:var(--dim)}
+
+  /* input area */
+  textarea{
+    width:100%;min-height:340px;max-height:60vh;background:none;border:0;outline:0;resize:vertical;
+    color:var(--text);font-family:var(--serif);font-size:15.5px;line-height:1.72;padding:18px 20px;
+  }
+  textarea::placeholder{color:var(--faint);font-style:italic}
+  .dropzone{
+    margin:16px;border:1.5px dashed var(--line2);border-radius:12px;min-height:340px;display:flex;
+    flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;transition:.2s;text-align:center;padding:20px;
+  }
+  .dropzone:hover,.dropzone.over{border-color:var(--amber);background:var(--amber-dim)}
+  .dropzone .big{font-family:var(--serif);font-style:italic;font-size:19px;color:var(--dim)}
+  .dropzone .small{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--faint)}
+  .counts{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.06em}
+
+  /* controls */
+  .controls{border-top:1px solid var(--line);padding:14px 18px;display:flex;flex-direction:column;gap:12px}
+  .ctl-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .ctl-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--faint);width:74px;flex-shrink:0}
+  select,input[type=text]{
+    background:var(--bg3);border:1px solid var(--line);color:var(--text);border-radius:8px;
+    padding:6px 10px;font-family:var(--sans);font-size:13px;outline:0;
+  }
+  select:focus,input[type=text]:focus,textarea:focus{border-color:var(--amber)}
+  details.voice{border:1px solid var(--line);border-radius:9px;background:var(--bg3)}
+  details.voice summary{cursor:pointer;padding:8px 13px;font-size:12.5px;color:var(--dim);list-style:none;display:flex;gap:8px;align-items:center}
+  details.voice summary::before{content:"+";color:var(--amber);font-family:var(--mono)}
+  details.voice[open] summary::before{content:"−"}
+  details.voice textarea{min-height:110px;font-size:13.5px;border-top:1px solid var(--line)}
+
+  .go-row{display:flex;align-items:center;gap:14px}
+  .go{
+    flex:1;background:linear-gradient(180deg,var(--amber-hot),var(--amber));color:#241a0c;border:0;border-radius:10px;
+    font-family:var(--sans);font-weight:700;font-size:15px;letter-spacing:.02em;padding:13px 20px;cursor:pointer;
+    box-shadow:0 4px 24px rgba(240,164,60,.25);transition:.15s;
+  }
+  .go:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 30px rgba(240,164,60,.4)}
+  .go:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .hint{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+
+  /* progress */
+  .progress{display:none;padding:10px 18px;border-top:1px solid var(--line);align-items:center;gap:12px}
+  .progress.show{display:flex}
+  .bar{flex:1;height:3px;background:var(--bg3);border-radius:99px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0%;background:linear-gradient(90deg,var(--amber),var(--amber-hot));transition:width .4s;border-radius:99px}
+  .progress .txt{font-family:var(--mono);font-size:11px;color:var(--amber);letter-spacing:.08em}
+
+  /* output */
+  .empty{
+    min-height:420px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:30px;text-align:center;
+  }
+  .empty .mark{font-family:var(--serif);font-style:italic;font-size:84px;color:var(--bg3);line-height:1}
+  .empty .t{color:var(--faint);font-size:13.5px;max-width:340px;line-height:1.6}
+  .result{display:none;padding:20px 22px;font-family:var(--serif);font-size:15.5px;line-height:1.75;white-space:pre-wrap;overflow-wrap:break-word;min-height:380px;max-height:64vh;overflow-y:auto}
+  .result .pending{color:var(--faint);font-style:italic}
+  .compare{display:none;max-height:64vh;overflow-y:auto}
+  .cmp-row{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+  .cmp-row>div{padding:15px 17px;font-family:var(--serif);font-size:13.8px;line-height:1.66;white-space:pre-wrap;overflow-wrap:break-word}
+  .cmp-row .orig{color:var(--dim);border-right:1px solid var(--line);background:rgba(0,0,0,.13)}
+  .cmp-row .code-badge{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.15em;display:block;margin-bottom:6px}
+  del{color:var(--red);background:var(--red-dim);text-decoration:line-through;text-decoration-thickness:1px;border-radius:3px;padding:0 1px}
+  ins{color:var(--amber-hot);background:var(--amber-dim);text-decoration:none;border-radius:3px;padding:0 1px}
+  .chunk-err{font-family:var(--mono);font-size:11px;color:var(--red);padding:4px 17px 10px}
+
+  /* analysis view */
+  .analysis{display:none;max-height:64vh;overflow-y:auto}
+  .ana-overall{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  .ana-big{font-family:var(--mono);font-size:42px;line-height:1;color:var(--amber-hot)}
+  .ana-verdict{font-family:var(--mono);letter-spacing:.14em;font-size:12px;margin-bottom:4px}
+  .v-human{color:var(--green)} .v-mixed{color:var(--amber)} .v-ai-ish{color:var(--red)} .v-short{color:var(--faint)}
+  .ana-sub{font-family:var(--mono);font-size:10.5px;color:var(--dim);line-height:1.8}
+  .ana-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;align-items:center}
+  .ana-row{padding:13px 18px;border-bottom:1px solid var(--line);border-left:3px solid var(--faint)}
+  .ana-row.v-human{border-left-color:var(--green)}
+  .ana-row.v-mixed{border-left-color:var(--amber)}
+  .ana-row.v-ai-ish{border-left-color:var(--red)}
+  .ana-chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;margin-bottom:6px}
+  .ana-text{font-family:var(--serif);font-size:13.8px;line-height:1.6;color:var(--dim);white-space:pre-wrap;overflow-wrap:break-word}
+  .ana-reasons{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:6px}
+  .ana-note{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.08em;padding:8px 20px;border-bottom:1px solid var(--line)}
+
+  /* metrics */
+  .metrics{display:none;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+  .metrics.show{display:grid}
+  .m{background:var(--bg2);padding:12px 16px}
+  .m .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--faint);margin-bottom:5px}
+  .m .v{font-family:var(--mono);font-size:16px;color:var(--text)}
+  .m .v .arrow{color:var(--faint);font-size:12px;margin:0 5px}
+  .m .v .after{color:var(--amber-hot);font-weight:600}
+  .m .v .after.up{color:var(--green)}
+  .metrics-note{display:none;font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.08em;padding:7px 18px;border-bottom:1px solid var(--line)}
+  .metrics-note.show{display:block}
+
+  /* history drawer */
+  .drawer{
+    position:fixed;top:0;right:-420px;width:400px;max-width:92vw;height:100%;background:var(--bg2);
+    border-left:1px solid var(--line2);z-index:100;transition:right .3s ease;display:flex;flex-direction:column;
+    box-shadow:-20px 0 60px rgba(0,0,0,.5);
+  }
+  .drawer.open{right:0}
+  .drawer-head{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .drawer-head .label{font-family:var(--serif);font-style:italic;font-size:19px}
+  .drawer-list{flex:1;overflow-y:auto}
+  .h-item{padding:13px 20px;border-bottom:1px solid var(--line);cursor:pointer;transition:.15s}
+  .h-item:hover{background:var(--bg3)}
+  .h-item .h-top{display:flex;gap:8px;align-items:baseline;margin-bottom:5px}
+  .h-item .h-ts{font-family:var(--mono);font-size:10.5px;color:var(--amber);letter-spacing:.05em}
+  .h-item .h-meta{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .h-item .h-prev{font-family:var(--serif);font-size:13px;color:var(--dim);font-style:italic;line-height:1.5}
+  .h-empty{padding:40px 20px;text-align:center;color:var(--faint);font-size:13px;font-style:italic}
+
+  /* toast */
+  .toast{
+    position:fixed;bottom:26px;left:50%;transform:translate(-50%,80px);background:var(--bg3);border:1px solid var(--line2);
+    color:var(--text);padding:11px 20px;border-radius:10px;font-size:13.5px;z-index:200;transition:.3s;opacity:0;
+    box-shadow:0 10px 40px rgba(0,0,0,.5);max-width:80vw;
+  }
+  .toast.show{transform:translate(-50%,0);opacity:1}
+  .toast.err{border-color:var(--red);color:var(--red)}
+
+  .footnote{margin-top:16px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.1em;animation:rise .6s .3s ease both}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><b>humanizer</b><span class="dot">.</span></div>
+    <div class="tagline">text that reads like you wrote it</div>
+    <div class="spacer"></div>
+    <span class="pill mock" id="modePill">…</span>
+    <button class="ghost-btn" id="historyBtn">History</button>
+  </header>
+
+  <div class="cols">
+    <!-- INPUT -->
+    <div class="card in">
+      <div class="card-head">
+        <span class="label">SOURCE</span>
+        <div class="spacer"></div>
+        <div class="seg" id="inputTabs">
+          <button class="on" data-tab="paste">Paste</button>
+          <button data-tab="file">File</button>
+        </div>
+      </div>
+
+      <div id="pastePane">
+        <textarea id="inputText" placeholder="Paste the text you want to humanize — or drop a file anywhere on this panel…" spellcheck="false"></textarea>
+      </div>
+      <div id="filePane" style="display:none">
+        <div class="dropzone" id="dropzone">
+          <div class="big">Drop a document here</div>
+          <div class="small">.DOCX · .PDF · .TXT · .MD — or click to browse</div>
+          <div class="small" style="margin-top:6px;color:var(--amber)">.DOCX GETS DOCUMENT MODE — SAME FILE BACK, FORMATTING PRESERVED</div>
+          <input type="file" id="fileInput" accept=".docx,.pdf,.txt,.md,.markdown" style="display:none">
+        </div>
+        <div id="docxBar" style="display:none;padding:0 16px 16px;flex-direction:column;gap:10px">
+          <div class="ana-sub" id="docxBarName"></div>
+          <div class="ctl-row">
+            <button class="ghost-btn" id="docxHumanizeBtn">Humanize document — keep formatting</button>
+            <button class="ghost-btn" id="docxExtractBtn">Just extract the text</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="ctl-row">
+          <span class="ctl-label">ENGINE</span>
+          <div class="seg" id="engineSeg"></div>
+        </div>
+        <div class="ctl-row">
+          <span class="ctl-label">TONE</span>
+          <div class="seg" id="toneSeg"></div>
+        </div>
+        <div class="ctl-row">
+          <span class="ctl-label">STRENGTH</span>
+          <div class="seg" id="strengthSeg"></div>
+        </div>
+        <div class="ctl-row">
+          <span class="ctl-label">MODEL</span>
+          <select id="modelSelect">
+            <option value="__custom">Custom…</option>
+          </select>
+          <input type="text" id="modelCustom" placeholder="provider/model-slug" style="display:none;flex:1;min-width:160px">
+        </div>
+        <details class="voice">
+          <summary>Voice sample — paste a few paragraphs of real writing to mimic (optional)</summary>
+          <textarea id="voiceSample" placeholder="Paste 2–5 paragraphs written by the voice you want the output to sound like. The engine absorbs the rhythm and vocabulary without copying phrases." spellcheck="false"></textarea>
+        </details>
+        <div class="go-row">
+          <button class="ghost-btn" id="checkBtn" style="padding:12px 16px;white-space:nowrap">Check humanness</button>
+          <button class="go" id="goBtn">Humanize</button>
+        </div>
+        <div class="ctl-row" style="justify-content:space-between">
+          <span class="counts" id="counts">0 words</span>
+          <span class="hint">CTRL+ENTER</span>
+        </div>
+      </div>
+      <div class="progress" id="progress">
+        <span class="txt" id="progressTxt">working…</span>
+        <div class="bar"><i id="progressBar"></i></div>
+      </div>
+    </div>
+
+    <!-- OUTPUT -->
+    <div class="card out">
+      <div class="card-head">
+        <span class="label">REWRITE</span>
+        <div class="spacer"></div>
+        <div class="seg" id="viewTabs" style="display:none">
+          <button class="on" data-view="result">Result</button>
+          <button data-view="compare">Compare</button>
+          <button data-view="analysis" id="analysisTab" style="display:none">Analysis</button>
+        </div>
+        <button class="ghost-btn" id="copyBtn" style="display:none">Copy</button>
+        <button class="ghost-btn" id="dlBtn" style="display:none">Download</button>
+      </div>
+      <div class="metrics" id="metrics"></div>
+      <div class="metrics-note" id="metricsNote">HEURISTIC INDICATORS (RHYTHM · VARIETY · AI-TELLS) — NOT A DETECTOR</div>
+      <div class="empty" id="empty">
+        <div class="mark">”</div>
+        <div class="t">The rewrite lands here — clean result on one tab, a word-by-word comparison on the other.</div>
+      </div>
+      <div class="result" id="result"></div>
+      <div class="compare" id="compare"></div>
+      <div class="analysis" id="analysis"></div>
+    </div>
+  </div>
+
+  <div class="footnote">100% LOCAL — YOUR TEXT ONLY LEAVES THIS MACHINE AS THE LLM API CALL ITSELF</div>
+</div>
+
+<!-- history drawer -->
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <span class="label">History</span>
+    <div class="spacer" style="flex:1"></div>
+    <button class="ghost-btn" id="drawerClose">Close</button>
+  </div>
+  <div class="drawer-list" id="drawerList"><div class="h-empty">No runs yet.</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const state = {
+    config: null,
+    providers: [],
+    provider: null,   // selected engine name
+    tone: localStorage.getItem('hz.tone') || 'natural',
+    strength: localStorage.getItem('hz.strength') || 'standard',
+    running: false,
+    chunks: [],       // {original, rewritten, rewritable, error}
+    total: 0,
+    view: 'result',
+    analysis: null,   // {paragraphs:[{index,text,words,score,judge,...}], overall, judging}
+  };
+
+  const providerObj = () => state.providers.find(p => p.name === state.provider) || null;
+  const modelStoreKey = () => 'hz.model.' + (state.provider || 'any');
+
+  // ---------- init ----------
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+    state.config = cfg;
+    state.providers = cfg.providers;
+    const pill = $('modePill');
+    const ready = cfg.providers.filter(p=>p.ready);
+    if (cfg.mock) { pill.textContent='MOCK MODE'; pill.className='pill mock'; pill.title='No API key in .env — rewrites are simulated. See .env.example for free keys (Groq/Gemini/Cerebras, no card).'; }
+    else { pill.textContent='LIVE'; pill.className='pill live'; pill.title='Engines ready: '+ready.map(p=>p.label).join(', '); }
+    buildEngineSeg();
+    // Initial engine: last used if still ready -> recommended ready -> first ready -> recommended (mock display)
+    const saved = localStorage.getItem('hz.provider');
+    const pick = ready.find(p=>p.name===saved) || ready.find(p=>p.recommended) || ready[0]
+      || cfg.providers.find(p=>p.recommended) || cfg.providers[0];
+    selectEngine(pick.name);
+    buildSeg('toneSeg', cfg.tones, state.tone, v=>{state.tone=v;localStorage.setItem('hz.tone',v);});
+    buildSeg('strengthSeg', cfg.strengths, state.strength, v=>{state.strength=v;localStorage.setItem('hz.strength',v);});
+  }).catch(()=>toast('Could not reach the local server', true));
+
+  function buildEngineSeg(){
+    const seg = $('engineSeg'); seg.innerHTML='';
+    for (const p of state.providers){
+      const b = document.createElement('button');
+      b.textContent = p.label + (p.recommended ? ' ★' : '');
+      b.dataset.name = p.name;
+      if (!p.ready) { b.classList.add('off'); b.title = 'Add ' + p.keyEnv + ' to .env (free, no card) and restart to enable'; }
+      else b.title = p.recommended ? 'Recommended — best free rewriter' : '';
+      b.onclick = ()=>{
+        if (!p.ready) { toast(p.label+' needs a key first — add '+p.keyEnv+' to .env and restart. Free signup, no card.', true); return; }
+        selectEngine(p.name);
+      };
+      seg.appendChild(b);
+    }
+  }
+
+  function selectEngine(name){
+    state.provider = name;
+    localStorage.setItem('hz.provider', name);
+    [...$('engineSeg').children].forEach(b=>b.classList.toggle('on', b.dataset.name===name));
+    const p = providerObj();
+    const sel = $('modelSelect');
+    sel.innerHTML = p.models.map(m=>'<option value="'+esc(m)+'">'+esc(m)+'</option>').join('') + '<option value="__custom">Custom…</option>';
+    // Restore this engine's last-used model if it still exists
+    const savedModel = localStorage.getItem(modelStoreKey());
+    sel.value = (savedModel && p.models.includes(savedModel)) ? savedModel : p.defaultModel;
+    $('modelCustom').style.display = 'none';
+  }
+
+  $('voiceSample').value = localStorage.getItem('hz.voice') || '';
+  $('voiceSample').addEventListener('input', e=>localStorage.setItem('hz.voice', e.target.value));
+
+  function buildSeg(id, options, current, onPick){
+    const seg = $(id); seg.innerHTML='';
+    for (const [value,label] of Object.entries(options)){
+      const b = document.createElement('button');
+      b.textContent = label;
+      if (value===current) b.className='on';
+      b.onclick = ()=>{ [...seg.children].forEach(x=>x.className=''); b.className='on'; onPick(value); };
+      seg.appendChild(b);
+    }
+  }
+
+  // ---------- tabs ----------
+  $('inputTabs').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    [...$('inputTabs').children].forEach(x=>x.className='');
+    b.className='on';
+    $('pastePane').style.display = b.dataset.tab==='paste' ? '' : 'none';
+    $('filePane').style.display  = b.dataset.tab==='file'  ? '' : 'none';
+  });
+  function setView(v){
+    state.view = v;
+    [...$('viewTabs').children].forEach(x=>x.classList.toggle('on', x.dataset.view===v));
+    $('result').style.display   = v==='result'   ? 'block' : 'none';
+    $('compare').style.display  = v==='compare'  ? 'block' : 'none';
+    $('analysis').style.display = v==='analysis' ? 'block' : 'none';
+  }
+  $('viewTabs').addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    setView(b.dataset.view);
+  });
+
+  // ---------- counts ----------
+  $('inputText').addEventListener('input', updateCounts);
+  function updateCounts(){
+    const t = $('inputText').value;
+    const w = (t.match(/\S+/g)||[]).length;
+    $('counts').textContent = w.toLocaleString()+' words · '+t.length.toLocaleString()+' chars';
+    // Text changed -> any prior analysis no longer matches it
+    if (state.analysis && !state.running){
+      state.analysis = null;
+      $('analysisTab').style.display = 'none';
+      if (state.view === 'analysis') setView('result');
+    }
+  }
+
+  // ---------- file handling ----------
+  $('dropzone').onclick = ()=>$('fileInput').click();
+  $('fileInput').onchange = e=>{ if(e.target.files[0]) handleFile(e.target.files[0]); e.target.value=''; };
+  ['dragover','dragenter'].forEach(ev=>{
+    document.addEventListener(ev, e=>{ e.preventDefault(); $('dropzone').classList.add('over'); });
+  });
+  ['dragleave','drop'].forEach(ev=>document.addEventListener(ev, e=>{ e.preventDefault(); $('dropzone').classList.remove('over'); }));
+  document.addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+  function handleFile(file){
+    if (/\.docx$/i.test(file.name)){
+      state.pickedFile = file;
+      $('docxBarName').textContent = file.name + ' — Document Mode: get the same .docx back with styles, tables, images and layout untouched, prose humanized. Uses the tone/strength/engine set below.';
+      $('docxBar').style.display = 'flex';
+      // make sure the file pane (with the choice) is visible
+      $('inputTabs').querySelector('[data-tab=file]').click();
+    } else {
+      $('docxBar').style.display = 'none';
+      uploadFile(file);
+    }
+  }
+  $('docxExtractBtn').onclick = ()=>{ if (state.pickedFile){ $('docxBar').style.display='none'; uploadFile(state.pickedFile); } };
+  $('docxHumanizeBtn').onclick = humanizeDocxFlow;
+
+  async function humanizeDocxFlow(){
+    if (state.running || !state.pickedFile) return;
+    const file = state.pickedFile;
+    state.running = true;
+    $('goBtn').disabled = true; $('checkBtn').disabled = true; $('docxHumanizeBtn').disabled = true;
+    $('docxHumanizeBtn').textContent = 'Working…';
+    $('progress').classList.add('show'); setProgress(3, 'reading '+file.name+'…');
+    try{
+      const b64 = await new Promise((resolve, reject)=>{
+        const fr = new FileReader();
+        fr.onload = ()=>resolve(String(fr.result).split(',')[1]);
+        fr.onerror = ()=>reject(new Error('Could not read the file'));
+        fr.readAsDataURL(file);
+      });
+      const res = await fetch('/api/humanize-docx', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          filename: file.name, fileB64: b64,
+          tone: state.tone, strength: state.strength,
+          provider: state.provider, model: currentModel(),
+          voiceSample: $('voiceSample').value,
+        }),
+      });
+      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true){
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream:true});
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0){
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+          if (!line) continue;
+          const ev = JSON.parse(line);
+          if (ev.type==='meta') setProgress(6, ev.paragraphs+' paragraphs to rewrite · '+ev.provider+(ev.mock?' · MOCK':''));
+          else if (ev.type==='progress') setProgress(6 + 88*(ev.done/Math.max(1,ev.total)), 'rewriting '+ev.done+'/'+ev.total);
+          else if (ev.type==='error') throw new Error(ev.error);
+          else if (ev.type==='file'){
+            setProgress(100,'done');
+            const bytes = Uint8Array.from(atob(ev.b64), c=>c.charCodeAt(0));
+            const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = ev.filename;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            const s = ev.stats;
+            if (ev.fatal) toast('Stopped early: '+ev.fatal, true);
+            else if (ev.mock) toast('MOCK document run — no API key, text mostly unchanged. Downloaded '+ev.filename+'.', true);
+            else toast('Done — '+s.rewritten+' of '+s.candidates+' prose paragraphs humanized'+(s.failed?(', '+s.failed+' kept original after errors'):'')+'. Downloaded '+ev.filename);
+          }
+        }
+      }
+    }catch(err){
+      toast('Document humanize failed: '+err.message, true);
+    }finally{
+      state.running=false; $('goBtn').disabled=false; $('checkBtn').disabled=false;
+      $('docxHumanizeBtn').disabled=false; $('docxHumanizeBtn').textContent='Humanize document — keep formatting';
+      $('progress').classList.remove('show');
+    }
+  }
+
+  async function uploadFile(file){
+    toast('Extracting text from '+file.name+'…');
+    try{
+      const res = await fetch('/api/extract', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
+        body: file,
+      });
+      const j = await res.json();
+      if(!res.ok) throw new Error(j.error||('HTTP '+res.status));
+      $('inputText').value = j.text;
+      updateCounts();
+      // jump to paste tab so the extracted text is visible/editable
+      $('inputTabs').querySelector('[data-tab=paste]').click();
+      toast('Loaded '+j.words.toLocaleString()+' words from '+file.name+(j.truncated?' (truncated)':''));
+    }catch(err){ toast('Extract failed: '+err.message, true); }
+  }
+
+  // ---------- humanize ----------
+  $('goBtn').onclick = ()=>humanize();
+  document.addEventListener('keydown', e=>{ if(e.ctrlKey && e.key==='Enter') humanize(); });
+
+  function currentModel(){
+    const v = $('modelSelect').value;
+    const fallback = providerObj() ? providerObj().defaultModel : '';
+    return v==='__custom' ? ($('modelCustom').value.trim() || fallback) : v;
+  }
+  $('modelSelect').onchange = ()=>{
+    $('modelCustom').style.display = $('modelSelect').value==='__custom' ? 'block':'none';
+    localStorage.setItem(modelStoreKey(), currentModel());
+  };
+  $('modelCustom').addEventListener('input', ()=>localStorage.setItem(modelStoreKey(), currentModel()));
+
+  async function humanize(keep){
+    if (state.running) return;
+    const text = $('inputText').value.trim();
+    if (!text) { toast('Nothing to humanize — paste some text first', true); return; }
+    const selective = Array.isArray(keep);
+
+    state.running = true; state.chunks = []; state.total = 0;
+    $('goBtn').disabled = true; $('checkBtn').disabled = true; $('goBtn').textContent = 'Working…';
+    $('empty').style.display='none';
+    $('metrics').classList.remove('show'); $('metricsNote').classList.remove('show');
+    $('viewTabs').style.display=''; $('copyBtn').style.display='none'; $('dlBtn').style.display='none';
+    // after a selective run the compare view shows what was kept vs rewritten
+    setView(state.view==='analysis' ? 'compare' : state.view);
+    $('result').innerHTML='<span class="pending">rewriting…</span>'; $('compare').innerHTML='';
+    $('progress').classList.add('show'); setProgress(0, selective ? 'rewriting flagged parts only…' : 'starting…');
+
+    try{
+      const res = await fetch('/api/humanize', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          text, tone: state.tone, strength: state.strength,
+          provider: state.provider, model: currentModel(),
+          voiceSample: $('voiceSample').value,
+          ...(selective ? { keep } : {}),
+        }),
+      });
+      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
+
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true){
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream:true});
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0){
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+          if (line) handleEvent(JSON.parse(line));
+        }
+      }
+    }catch(err){
+      toast('Humanize failed: '+err.message, true);
+    }finally{
+      state.running=false; $('goBtn').disabled=false; $('checkBtn').disabled=false; $('goBtn').textContent='Humanize';
+      $('progress').classList.remove('show');
+    }
+  }
+
+  function handleEvent(ev){
+    if (ev.type==='meta'){
+      state.total = ev.chunks;
+      state.lastMock = ev.mock;
+      setProgress(0, '0/'+ev.chunks+' chunks · '+ev.provider+' · '+ev.model+(ev.mock?' · MOCK':''));
+      renderAll();
+    }
+    else if (ev.type==='chunk' || ev.type==='chunk_error'){
+      state.chunks[ev.index] = {
+        original: ev.original,
+        rewritten: ev.type==='chunk' ? ev.rewritten : ev.original,
+        rewritable: ev.rewritable !== false,
+        error: ev.type==='chunk_error' ? ev.error : null,
+      };
+      const doneCount = state.chunks.filter(Boolean).length;
+      setProgress(doneCount/state.total*100, doneCount+'/'+state.total+' chunks');
+      renderAll();
+    }
+    else if (ev.type==='done'){
+      setProgress(100,'done');
+      renderMetrics(ev.metrics);
+      $('copyBtn').style.display=''; $('dlBtn').style.display='';
+      if (ev.fatal) toast('Stopped early: '+ev.fatal, true);
+      else if (ev.failedChunks) toast(ev.failedChunks+' chunk(s) failed and passed through unrewritten', true);
+      else if (state.lastMock) toast('MOCK run — no API key configured, so the text may be unchanged. Add a free key (.env.example has 3 no-card options) to go live.', true);
+      else toast('Done in '+(ev.elapsedMs/1000).toFixed(1)+'s'+(ev.usage.completion_tokens?(' · '+(ev.usage.prompt_tokens+ev.usage.completion_tokens).toLocaleString()+' tokens'):''));
+      loadHistory();
+    }
+  }
+
+  function setProgress(pct, txt){
+    $('progressBar').style.width = pct+'%';
+    $('progressTxt').textContent = txt;
+  }
+
+  // ---------- check humanness ----------
+  $('checkBtn').onclick = checkHumanness;
+
+  async function checkHumanness(){
+    if (state.running) return;
+    const text = $('inputText').value.trim();
+    if (!text) { toast('Nothing to check — paste some text first', true); return; }
+
+    state.running = true;
+    $('checkBtn').disabled = true; $('goBtn').disabled = true;
+    $('checkBtn').textContent = 'Checking…';
+    $('empty').style.display='none';
+    $('metrics').classList.remove('show'); $('metricsNote').classList.remove('show');
+    $('viewTabs').style.display=''; $('analysisTab').style.display='';
+    $('copyBtn').style.display='none'; $('dlBtn').style.display='none';
+    $('analysis').innerHTML='';
+    setView('analysis');
+    $('progress').classList.add('show'); setProgress(8,'analyzing…');
+    state.analysis = null;
+
+    try{
+      const res = await fetch('/api/analyze', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text, provider: state.provider, model: currentModel(), deep: true }),
+      });
+      if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error||('HTTP '+res.status)); }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true){
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream:true});
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0){
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl+1);
+          if (line) handleAnalyzeEvent(JSON.parse(line));
+        }
+      }
+    }catch(err){
+      toast('Check failed: '+err.message, true);
+    }finally{
+      state.running=false; $('checkBtn').disabled=false; $('goBtn').disabled=false;
+      $('checkBtn').textContent='Check humanness';
+      $('progress').classList.remove('show');
+    }
+  }
+
+  function handleAnalyzeEvent(ev){
+    if (ev.type==='heuristics'){
+      state.analysis = {
+        paragraphs: ev.paragraphs.map(p=>({ ...p, judge: null, judgeReasons: [] })),
+        overall: { heuristic: ev.overall.score, judge: null, blended: ev.overall.score, verdict: ev.overall.verdict, reasons: ev.overall.reasons },
+        judging: ev.judging,
+        judgedCount: 0,
+      };
+      renderAnalysis();
+      const n = state.analysis.paragraphs.filter(p=>p.score!==null).length;
+      if (ev.judging) setProgress(15, 'AI judge reading '+n+' paragraph'+(n===1?'':'s')+'…');
+      else setProgress(100, 'heuristics only — no engine live');
+    }
+    else if (ev.type==='judge' || ev.type==='judge_error'){
+      const a = state.analysis; if (!a) return;
+      if (ev.type==='judge'){
+        const p = a.paragraphs[ev.index];
+        if (p){ p.judge = ev.score; p.judgeReasons = ev.reasons || []; }
+      }
+      a.judgedCount++;
+      const total = a.paragraphs.filter(x=>x.score!==null).length || 1;
+      setProgress(15 + 85*(a.judgedCount/total), 'judged '+a.judgedCount+'/'+total);
+      renderAnalysis();
+    }
+    else if (ev.type==='done'){
+      if (state.analysis) state.analysis.overall = ev.overall;
+      setProgress(100,'done');
+      if (ev.fatal) toast('AI judge stopped early: '+ev.fatal, true);
+      renderAnalysis();
+    }
+  }
+
+  function finalScore(p){
+    if (p.score===null) return null;
+    return p.judge==null ? p.score : Math.round(0.35*p.score + 0.65*p.judge);
+  }
+
+  function renderAnalysis(){
+    const a = state.analysis; if (!a) return;
+    const flagged = a.paragraphs.filter(p=>p.score!==null && finalScore(p) < 65);
+    const o = a.overall;
+    const verdict = o.verdict || 'short';
+    const verdictText = {human:'READS MOSTLY HUMAN', mixed:'MIXED — SOME AI-ISH PARTS', 'ai-ish':'READS AI-ISH', short:'TOO SHORT TO SCORE'}[verdict];
+
+    let html = '<div class="ana-overall">'
+      + '<div class="ana-big">'+(o.blended==null?'—':o.blended)+'</div>'
+      + '<div><div class="ana-verdict v-'+verdict+'">'+verdictText+'</div>'
+      + '<div class="ana-sub">heuristic '+(o.heuristic==null?'—':o.heuristic)
+      + (o.judge!=null ? ' · AI judge '+o.judge : (a.judging ? ' · AI judge running…' : ' · AI judge off'))
+      + ((o.reasons&&o.reasons.length) ? '<br>'+esc(o.reasons.join(' · ')) : '')
+      + '</div></div>'
+      + '<div class="ana-actions">'
+      + (flagged.length
+          ? '<button class="ghost-btn" id="fixFlagged">Humanize flagged only ('+flagged.length+')</button>'
+            + '<button class="ghost-btn" id="fixAll">Humanize all</button>'
+          : '<span class="ana-sub">Nothing flagged — this already reads human.<br>Rewriting it would likely make it worse.</span>')
+      + '</div></div>'
+      + '<div class="ana-note">0–100 · 100 = READS FULLY HUMAN · LOCAL HEURISTICS + AI JUDGE · DIRECTIONAL — NOT A DETECTOR, NO TOOL CAN PROVE AUTHORSHIP</div>';
+
+    for (const p of a.paragraphs){
+      const f = finalScore(p);
+      const v = p.score===null ? 'short' : (f>=65 ? 'human' : f>=45 ? 'mixed' : 'ai-ish');
+      const chip = p.score===null
+        ? 'passed over — heading, code, or too short to score'
+        : 'score '+f+' · heuristic '+p.score+(p.judge!=null ? ' · judge '+p.judge : (a.judging ? ' · judging…' : ''));
+      const reasons = [...(p.reasons||[]), ...(p.judgeReasons||[])].slice(0,5).join(' · ');
+      html += '<div class="ana-row v-'+v+'">'
+        + '<div class="ana-chip v-'+v+'">'+esc(chip)+'</div>'
+        + '<div class="ana-text">'+esc(p.text.length>420 ? p.text.slice(0,420)+'…' : p.text)+'</div>'
+        + (reasons ? '<div class="ana-reasons">'+esc(reasons)+'</div>' : '')
+        + '</div>';
+    }
+    $('analysis').innerHTML = html;
+
+    const fix = document.getElementById('fixFlagged');
+    if (fix) fix.onclick = ()=>{
+      const keep = a.paragraphs.filter(p=>p.score===null || finalScore(p)>=65).map(p=>p.index);
+      humanize(keep);
+    };
+    const all = document.getElementById('fixAll');
+    if (all) all.onclick = ()=>humanize();
+  }
+
+  // ---------- rendering ----------
+  function renderAll(){
+    // Result view
+    let html='';
+    for (let i=0;i<state.total;i++){
+      const c = state.chunks[i];
+      html += c ? esc(c.rewritten) : '<span class="pending">…</span>';
+      if (i<state.total-1) html += '\n\n';
+    }
+    $('result').innerHTML = html;
+
+    // Compare view
+    let cmp='';
+    for (let i=0;i<state.total;i++){
+      const c = state.chunks[i];
+      if (!c){ cmp += '<div class="cmp-row"><div class="orig"><span class="pending">…</span></div><div><span class="pending">rewriting…</span></div></div>'; continue; }
+      if (!c.rewritable){
+        cmp += '<div class="cmp-row"><div class="orig"><span class="code-badge">PASSED THROUGH</span>'+esc(c.original)+'</div><div><span class="code-badge">PASSED THROUGH</span>'+esc(c.rewritten)+'</div></div>';
+        continue;
+      }
+      const d = wordDiff(c.original, c.rewritten);
+      let left, right;
+      if (d){
+        left = d.filter(o=>o[0]!=='ins').map(o=>o[0]==='del'?'<del>'+esc(o[1])+'</del>':esc(o[1])).join(' ');
+        right = d.filter(o=>o[0]!=='del').map(o=>o[0]==='ins'?'<ins>'+esc(o[1])+'</ins>':esc(o[1])).join(' ');
+      } else { left = esc(c.original); right = esc(c.rewritten); }
+      cmp += '<div class="cmp-row"><div class="orig">'+left+'</div><div>'+right+'</div></div>';
+      if (c.error) cmp += '<div class="chunk-err">chunk '+(i+1)+' failed: '+esc(c.error)+' — original kept</div>';
+    }
+    $('compare').innerHTML = cmp;
+  }
+
+  function wordDiff(a, b){
+    const A=a.split(/\s+/), B=b.split(/\s+/);
+    if (A.length>650 || B.length>650) return null;
+    const m=A.length, n=B.length;
+    const dp = Array.from({length:m+1}, ()=>new Uint16Array(n+1));
+    for (let i=m-1;i>=0;i--) for (let j=n-1;j>=0;j--)
+      dp[i][j] = A[i]===B[j] ? dp[i+1][j+1]+1 : Math.max(dp[i+1][j], dp[i][j+1]);
+    const ops=[]; let i=0,j=0;
+    while (i<m && j<n){
+      if (A[i]===B[j]){ ops.push(['eq',A[i]]); i++; j++; }
+      else if (dp[i+1][j] >= dp[i][j+1]){ ops.push(['del',A[i]]); i++; }
+      else { ops.push(['ins',B[j]]); j++; }
+    }
+    while (i<m) ops.push(['del',A[i++]]);
+    while (j<n) ops.push(['ins',B[j++]]);
+    return ops;
+  }
+
+  function renderMetrics(mx){
+    if (!mx || !mx.before || mx.before.score===null){ return; }
+    const b=mx.before, a=mx.after;
+    const cell = (k, vb, va, higherBetter)=>{
+      const up = higherBetter ? va>=vb : va<=vb;
+      return '<div class="m"><div class="k">'+k+'</div><div class="v">'+vb+'<span class="arrow">→</span><span class="after'+(up?' up':'')+'">'+va+'</span></div></div>';
+    };
+    $('metrics').innerHTML =
+      cell('NATURALNESS', b.score, a.score, true) +
+      cell('RHYTHM VAR', b.burstiness, a.burstiness, true) +
+      cell('AI TELLS', b.aiTellCount, a.aiTellCount, false) +
+      cell('AVG SENT LEN', b.avgSentenceLen, a.avgSentenceLen, false);
+    $('metrics').classList.add('show');
+    $('metricsNote').classList.add('show');
+  }
+
+  // ---------- copy / download ----------
+  $('copyBtn').onclick = async ()=>{
+    const text = state.chunks.map(c=>c?c.rewritten:'').join('\n\n');
+    try{ await navigator.clipboard.writeText(text); toast('Copied to clipboard'); }
+    catch{ toast('Copy failed — select the text manually', true); }
+  };
+  $('dlBtn').onclick = ()=>{
+    const text = state.chunks.map(c=>c?c.rewritten:'').join('\n\n');
+    const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'humanized-'+new Date().toISOString().slice(0,16).replace(/[T:]/g,'-')+'.txt';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // ---------- history ----------
+  $('historyBtn').onclick = ()=>{ $('drawer').classList.add('open'); loadHistory(); };
+  $('drawerClose').onclick = ()=>$('drawer').classList.remove('open');
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') $('drawer').classList.remove('open'); });
+
+  async function loadHistory(){
+    try{
+      const j = await (await fetch('/api/history')).json();
+      const list = $('drawerList');
+      if (!j.items.length){ list.innerHTML='<div class="h-empty">No runs yet.</div>'; return; }
+      list.innerHTML = j.items.map(it=>
+        '<div class="h-item" data-id="'+it.id+'">'+
+          '<div class="h-top"><span class="h-ts">'+new Date(it.ts).toLocaleString()+'</span>'+
+          '<span class="h-meta">'+it.words.toLocaleString()+'w · '+esc(it.settings.tone)+'/'+esc(it.settings.strength)+
+          (it.scoreBefore!==null?(' · '+it.scoreBefore+'→'+it.scoreAfter):'')+(it.settings.mock?' · mock':'')+'</span></div>'+
+          '<div class="h-prev">'+esc(it.preview)+'…</div>'+
+        '</div>'
+      ).join('');
+      list.querySelectorAll('.h-item').forEach(el=>el.onclick=()=>loadRun(el.dataset.id));
+    }catch(_){}
+  }
+
+  async function loadRun(id){
+    try{
+      const j = await (await fetch('/api/history/'+id)).json();
+      $('inputText').value = j.input; updateCounts();
+      state.total = 1;
+      state.chunks = [{original:j.input, rewritten:j.output, rewritable:true, error:null}];
+      $('empty').style.display='none';
+      $('viewTabs').style.display=''; $('copyBtn').style.display=''; $('dlBtn').style.display='';
+      setView(state.view==='analysis' ? 'result' : state.view);
+      renderAll(); renderMetrics(j.metrics);
+      $('drawer').classList.remove('open');
+      toast('Loaded run from '+new Date(j.ts).toLocaleString());
+    }catch(err){ toast('Could not load run: '+err.message, true); }
+  }
+
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg, isErr){
+    const t = $('toast');
+    t.textContent = msg;
+    t.className = 'toast show'+(isErr?' err':'');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>t.className='toast', 3600);
+  }
+})();
+</script>
+</body>
+</html>
